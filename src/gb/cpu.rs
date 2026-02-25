@@ -103,7 +103,13 @@ impl Cpu {
     // 0x00 NOP
     // 0x05 DEC B
     pub fn dec_b(&mut self) -> Result<(), String> {
+        if self.b & 0x0F == 0 {
+            // We have to borrow from bit 4
+            self.f = self.f | (1 << 5);
+        }
         self.b = self.b.wrapping_add_signed(-1);
+        if self.b == 0 { self.f = self.f | (1 << 7); }
+        self.f = self.f | (1 << 6);
         Ok(())
     }
     // 0x06 LD B, n8
@@ -380,5 +386,88 @@ impl Cpu {
         let value = memory.read_byte(self.pc);
         self.pc = self.pc.wrapping_add(1);
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::gb::memory::{BANK_SIZE, Memory};
+
+    use super::*;
+
+    #[test]
+    fn test_dec_b() {
+        // Decrements the register B by 1
+        // Sets Z if the result is 0
+        // Sets N
+        // Sets H if borrow from bit 4
+        let mut cpu = Cpu::new();
+        cpu.b = 0x02;
+        cpu.dec_b().unwrap();
+        assert_eq!(cpu.b, 0x01);
+        assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
+        assert_eq!((cpu.f >> 6) & 1, 1); // N should be set
+        assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
+
+        cpu.f = 0x00;
+        cpu.dec_b().unwrap();
+        assert_eq!(cpu.b, 0x00);
+        assert_eq!((cpu.f >> 7) & 1, 1); // Z should be set
+        assert_eq!((cpu.f >> 6) & 1, 1); // N should be set
+        assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
+
+        cpu.f = 0x00;
+        cpu.dec_b().unwrap();
+        assert_eq!(cpu.b, 0xFF);
+        assert_eq!((cpu.f >> 7) & 1, 0);
+        assert_eq!((cpu.f >> 6) & 1, 1);
+        assert_eq!((cpu.f >> 5) & 1, 1); // H should be set
+    }
+    #[test]
+    fn test_ld_b_n8() {
+        let mut cpu = Cpu::new();
+        cpu.f = 0xA0;
+        let mut memory = Memory {
+            fixed_rom_bank: [0; BANK_SIZE],
+            switch_rom_bank: [0; BANK_SIZE],
+            io_registers: [0; 0x80],
+            hram: [0; 0x7F],
+        };
+        memory.fixed_rom_bank[0] = 0xAB;
+        cpu.ld_b_n8(&mut memory).unwrap();
+        assert_eq!(cpu.b, 0xAB);
+        assert_eq!(cpu.f, 0xA0); // Flags are unaffected
+    }
+    #[test]
+    fn test_inc_c() {
+        let mut cpu = Cpu::new();
+        cpu.inc_c().unwrap();
+        assert_eq!(cpu.c, 0x01);
+        assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
+        assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
+        assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
+        
+        // Tests that N is set to 0
+        cpu.f = 0b0100_0000; // Set N
+        cpu.inc_c().unwrap();
+        assert_eq!(cpu.c, 0x02);
+        assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
+        assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
+        assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
+
+        // Test half-carry flag
+        cpu.c = 0x0F;
+        cpu.inc_c().unwrap();
+        assert_eq!(cpu.c, 0x10);
+        assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
+        assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
+        assert_eq!((cpu.f >> 5) & 1, 1); // H should be set
+
+        cpu.inc_c();
+        assert_eq!(cpu.c, 0x11);
+        assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
+        assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
+        assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
+        
     }
 }
