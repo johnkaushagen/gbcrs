@@ -2,6 +2,11 @@ use std::{mem, result};
 
 use crate::gb::{memory, mmu::Mmu};
 
+const ZMASK: u8 = 0b1000_0000;
+const NMASK: u8 = 0b0100_0000;
+const HMASK: u8 = 0b0010_0000;
+const CMASK: u8 = 0b0001_0000;
+
 pub struct Cpu {
     // Registers
     pub a: u8,
@@ -77,7 +82,8 @@ impl Cpu {
             0xC1 => self.pop_bc(memory),
             0xC5 => self.push_bc(memory),
             0xC9 => self.ret(memory),
-            0xCB => { // Prefix instructions,
+            0xCB => {
+                // Prefix instructions,
                 let prefix = self.read_and_increment(memory);
                 match prefix {
                     0x11 => self.rlc(),
@@ -85,7 +91,7 @@ impl Cpu {
                     _ => {
                         println!("Unknown opcode 0xCB{:02X}", prefix);
                         Ok(())
-                    },
+                    }
                 }
             }
             0xCD => self.call_a16(memory),
@@ -108,7 +114,9 @@ impl Cpu {
             self.f = self.f | (1 << 5);
         }
         self.b = self.b.wrapping_add_signed(-1);
-        if self.b == 0 { self.f = self.f | (1 << 7); }
+        if self.b == 0 {
+            self.f = self.f | (1 << 7);
+        }
         self.f = self.f | (1 << 6);
         Ok(())
     }
@@ -121,7 +129,9 @@ impl Cpu {
     // 0x0C INC C
     pub fn inc_c(&mut self) -> Result<(), String> {
         self.c = self.c.wrapping_add(1);
-        if self.c == 0 { self.f = self.f | 0x80; }
+        if self.c == 0 {
+            self.f = self.f | 0x80;
+        }
         self.f = self.f & 0xBF;
         if self.c & 0b00010000 != 0 {
             self.f = self.f | 0b00100000;
@@ -143,7 +153,7 @@ impl Cpu {
     // 0x13 INC DE
     pub fn inc_de(&mut self) -> Result<(), String> {
         let val = self.de().wrapping_add(1);
-        self.e = (val | & 0x00FF) as u8;
+        self.e = (val | &0x00FF) as u8;
         self.d = ((val & 0xFF00) >> 8) as u8;
         Ok(())
     }
@@ -279,7 +289,7 @@ impl Cpu {
     // 0xCB11 RL C
     pub fn rlc(&mut self) -> Result<(), String> {
         self.c = self.c.rotate_left(1);
-        self.f = (self.f & (0 << 5)) | ( (self.c & 1) << 5);
+        self.f = (self.f & (0 << 5)) | ((self.c & 1) << 5);
         Ok(())
     }
     // 0xCB7C Bit 7 H
@@ -387,6 +397,31 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(1);
         value
     }
+
+    fn set_z(&mut self) {
+        self.f |= ZMASK;
+    }
+    fn unset_z(&mut self) {
+        self.f &= !ZMASK;
+    }
+    fn set_n(&mut self) {
+        self.f |= NMASK;
+    }
+    fn unset_n(&mut self) {
+        self.f &= !NMASK;
+    }
+    fn set_h(&mut self) {
+        self.f |= HMASK;
+    }
+    fn unset_h(&mut self) {
+        self.f &= !HMASK;
+    }
+    fn set_c(&mut self) {
+        self.f |= CMASK;
+    }
+    fn unset_c(&mut self) {
+        self.f &= !CMASK;
+    }
 }
 
 #[cfg(test)]
@@ -446,7 +481,7 @@ mod tests {
         assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
         assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
         assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
-        
+
         // Tests that N is set to 0
         cpu.f = 0b0100_0000; // Set N
         cpu.inc_c().unwrap();
@@ -468,6 +503,5 @@ mod tests {
         assert_eq!((cpu.f >> 7) & 1, 0); // Z should NOT be set
         assert_eq!((cpu.f >> 6) & 1, 0); // N should NOT be set (even if it previously was)
         assert_eq!((cpu.f >> 5) & 1, 0); // H should NOT be set
-        
     }
 }
